@@ -4,12 +4,28 @@ import os
 from scipy.io import loadmat
 from tike.ptycho.io import position_units_to_pixels
 
-def determine_Niter(path2search):
+
+def determine_Niter(path2search, idx=0):
+    """
+    Obtain the correct path to the matlab probe.
+    
+    Parameters
+    ----------
+    path2search : str
+        the path to the folder holding the Niter's
+    idx : int
+        the index of the probe to use
+    
+    Returns
+    -------
+    str
+        the file path to a usable probe
+    """
     folder1 = os.listdir(path2search)
     path2search_2 = f'{path2search}{folder1[0]}'
     folder2 = os.listdir(path2search_2)
     folder2 = [int(x[5:-4]) for x in folder2 if 'Niter' in x]
-    file = f'{path2search_2}/Niter{sorted(folder2)[0]}.mat'
+    file = f'{path2search_2}/Niter{sorted(folder2)[idx]}.mat'
     return file
 
 
@@ -28,6 +44,7 @@ def import_diffraction_data(file):
         diffraction data from the experiment
     """
     return h5grab_data(file, 'entry/data/eiger_4')
+
 
 def center_crop_with_fft_shift(data, center_x, center_y, crop_size):
     """
@@ -52,6 +69,7 @@ def center_crop_with_fft_shift(data, center_x, center_y, crop_size):
     size = int(crop_size / 2)
     data = data[:, center_x-size:center_x+size, center_y-size:center_y+size]
     return data, np.fft.ifftshift(np.array(data), axes=(1, 2))
+
     
 def import_probe(mat_file, useH5=False):
     """
@@ -80,6 +98,7 @@ def import_probe(mat_file, useH5=False):
     probe = probe['real'] + probe['imag']*1j
     probe = probe.T
     return probe[None, None, None]
+
 
 def import_scan_paths(file, dat_file, skiprows=2, x_idx=2, y_idx=5, meter_convert=1e-6,
                       dist2det=2.97, ev=8800, detector_pixel_count=256, path_corr=[-1, -1]):
@@ -120,8 +139,6 @@ def import_scan_paths(file, dat_file, skiprows=2, x_idx=2, y_idx=5, meter_conver
     scan = position_units_to_pixels(scan, dist2det, detector_pixel_count, pix_size[0][0], ev)
     return scan
 
-
-
     
 def setup_diffraction_data():
     """
@@ -129,6 +146,7 @@ def setup_diffraction_data():
     Dimensions should be x_pos, y_pos, x_diff_dim, y_diff_dim.
     """
     pass
+
 
 def setup_realspace_data():
     """
@@ -176,6 +194,7 @@ def h5grab_data(file, data_loc):
         data = np.array(data)
 
     return data
+
 
 def h5read_attr(file, loc, attribute_name):
     """Read an attribute from a user selected group and attribute name
