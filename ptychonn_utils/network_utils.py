@@ -124,15 +124,6 @@ def setup_model_path(data_path, save_model_scan):
     return MODEL_SAVE_PATH
 
 
-def load_data(data_diffr_loc, real_space_loc):
-
-    data_diffr = np.load(data_diffr_loc).astype('float32')
-    real_space = np.load(real_space_loc)
-    amp = np.abs(real_space).astype('float32')
-    ph = np.angle(real_space).astype('float32')
-    
-    return data_diffr, amp, ph
-
 def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(256, 256), torp='train'):
     """
     Load in the saved training data from TIKE
@@ -248,6 +239,7 @@ def load_dataV3(main_path, start_scan, end_scan, mean_phsqr_val=0.0, im_shape=(2
     for scan_num in tqdm(range(start_scan, end_scan+1), position=0, leave=False, desc='Loading Scans'):
         if torp == 'train':
             real_space = np.load(f"{main_path}/{scan_num}/patched_psi.npy")
+            
             r_space.append(real_space)
             phase = np.angle(real_space)
             ampli = np.abs(real_space)
@@ -294,24 +286,6 @@ def load_dataV3(main_path, start_scan, end_scan, mean_phsqr_val=0.0, im_shape=(2
         pbar.update(1)
     
     return total_data_diff, total_data_amp, total_data_phase
-
-
-def plot3(data,titles):
-    if(len(titles)<3):
-        titles=["Plot1", "Plot2", "Plot3"]
-    fig,ax = plt.subplots(1,3, figsize=(20,12))
-    im=ax[0].imshow(data[0])
-    ax[0].set_title(titles[0])
-    ax[0].axis('off')
-    plt.colorbar(im,ax=ax[0], fraction=0.046, pad=0.04)
-    im=ax[1].imshow(data[1])
-    ax[1].set_title(titles[1])
-    ax[1].axis('off')
-    plt.colorbar(im,ax=ax[1], fraction=0.046, pad=0.04)
-    im=ax[2].imshow(data[2])
-    ax[2].set_title(titles[2])
-    ax[2].axis('off')
-    plt.colorbar(im,ax=ax[2], fraction=0.046, pad=0.04)
   
 
 def update_saved_model(model, path, NGPUS):
@@ -337,7 +311,8 @@ def update_saved_model(model, path, NGPUS):
         os.mkdir(path)
     for f in os.listdir(path):
         os.remove(os.path.join(path, f))
-    if (NGPUS>1):    
+    if (NGPUS>1):
+        raise ValueError('PtychoNN Does Not Support Multi-GPU Yet')
         
         if isinstance(model, nn.DataParallel):
             torch.save(model.module.state_dict(), path+'best_model.pth')
@@ -345,7 +320,9 @@ def update_saved_model(model, path, NGPUS):
             torch.save(model.state_dict(), path+'best_model.pth')
             
         #model = torch.nn.DataParallel(model).cuda()
-        #torch.save(model.module.state_dict(), path+'best_model.pth') #Have to save the underlying model else will always need 4 GPUs
+        #torch.save(model.module.state_dict(), path+'best_model.pth')
+        #Have to save the underlying model else will always need 4 GPUs
+        
     else:
         torch.save(model, path+'best_model.pth')
     
@@ -381,16 +358,17 @@ def train_nn(trainloader, metrics, device, model, criterion, optimizer, schedule
     loss_ph = 0.0
     
     for i, (ft_images,amps,phs) in tqdm(enumerate(trainloader), position=1, leave=False, total=len(trainloader), desc='Batches'):
-        ft_images = ft_images.to(device) #Move everything to device
+        ft_images = ft_images.to(device)
         amps = amps.to(device)
         phs = phs.to(device)
 
-        pred_amps, pred_phs = model(ft_images) #Forward pass
+        #Forward pass
+        pred_amps, pred_phs = model(ft_images)
 
         #Compute losses
-        loss_a = criterion(pred_amps,amps) #Monitor amplitude loss
-        loss_p = criterion(pred_phs,phs) #Monitor phase loss but only within support (which may not be same as true amp)
-        loss = loss_a + loss_p #Use equiweighted amps and phase
+        loss_a = criterion(pred_amps,amps)
+        loss_p = criterion(pred_phs,phs)
+        loss = loss_a + loss_p
 
         #Zero current grads and do backprop
         optimizer.zero_grad() 
@@ -401,12 +379,9 @@ def train_nn(trainloader, metrics, device, model, criterion, optimizer, schedule
         loss_amp += loss_a.detach().item()
         loss_ph += loss_p.detach().item()
 
-        #Update the LR according to the schedule -- CyclicLR updates each batch
         scheduler.step() 
         metrics['lrs'].append(scheduler.get_last_lr())
         
-        
-    #Divide cumulative loss by number of batches-- sli inaccurate because last batch is different size
     metrics['losses'].append([tot_loss/i,loss_amp/i,loss_ph/i]) 
     
 
@@ -443,7 +418,9 @@ def validate_nn(validloader, metrics, device, model, criterion, scheduler, MODEL
         ft_images = ft_images.to(device)
         amps = amps.to(device)
         phs = phs.to(device)
-        pred_amps, pred_phs = model(ft_images) #Forward pass
+        
+        # Forward pass
+        pred_amps, pred_phs = model(ft_images)
     
         val_loss_a = criterion(pred_amps,amps) 
         val_loss_p = criterion(pred_phs,phs)
@@ -454,7 +431,7 @@ def validate_nn(validloader, metrics, device, model, criterion, scheduler, MODEL
         val_loss_ph += val_loss_p.detach().item()  
     metrics['val_losses'].append([tot_val_loss/j,val_loss_amp/j,val_loss_ph/j])
   
-  #Update saved model if val loss is lower
+    # Update saved model if val loss is lower
     if(tot_val_loss/j<metrics['best_val_loss']):
         if verbose:
             print("Saving improved model after Val Loss improved from %.5f to %.5f" %(metrics['best_val_loss'],tot_val_loss/j))
@@ -470,7 +447,7 @@ class recon_model(nn.Module):
         super(recon_model, self).__init__()
 
 
-        self.encoder = nn.Sequential( # Appears sequential has similar functionality as TF avoiding need for separate model definition and activ
+        self.encoder = nn.Sequential(
           nn.Conv2d(in_channels=1, out_channels=nconv, kernel_size=3, stride=1, padding=(1,1)),
           nn.ReLU(),
           nn.Conv2d(nconv, nconv, 3, stride=1, padding=(1,1)),
@@ -543,8 +520,9 @@ class recon_model(nn.Module):
         amp = self.decoder1(x1)
         ph = self.decoder2(x1)
 
-        #Restore -pi to pi range
-        ph = ph*np.pi #Using tanh activation (-1 to 1) for phase so multiply by pi
+        # Restore -pi to pi range
+        # Using tanh activation (-1 to 1) for phase so multiply by pi
+        ph = ph*np.pi
 
         return amp,ph
     
@@ -580,7 +558,8 @@ def step1_setup(data_diffr_red, amp, ph, NLINES, NLTEST, N_VALID, BATCH_SIZE, H,
         train_dataloader, validation_dataloader, test_dataloader, N_TRAIN, X_test_data, Y_amp_data, Y_phase_data
     """
     
-    tst_strt = amp.shape[0]-NLTEST #Where to index from
+    #Where to index from
+    tst_strt = amp.shape[0]-NLTEST
     if verbose:
         print(tst_strt)
 
@@ -599,12 +578,12 @@ def step1_setup(data_diffr_red, amp, ph, NLINES, NLTEST, N_VALID, BATCH_SIZE, H,
 
     X_train, Y_I_train, Y_phi_train = shuffle(X_train, Y_I_train, Y_phi_train, random_state=0)
     
-    #Training data
+    # Training data
     X_train_tensor = torch.Tensor(X_train) 
     Y_I_train_tensor = torch.Tensor(Y_I_train) 
     Y_phi_train_tensor = torch.Tensor(Y_phi_train)
 
-    #Test data
+    # Test data
     X_test_tensor = torch.Tensor(X_test) 
     Y_I_test_tensor = torch.Tensor(Y_I_test) 
     Y_phi_test_tensor = torch.Tensor(Y_phi_test)
@@ -622,13 +601,12 @@ def step1_setup(data_diffr_red, amp, ph, NLINES, NLTEST, N_VALID, BATCH_SIZE, H,
     if verbose:
         print(len(train_data2),len(valid_data),len(test_data))
     
-    #download and load training data
+    # Download and load training data
     trainloader = DataLoader(train_data2, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
     validloader = DataLoader(valid_data, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
-    #same for test
-    #download and load training data
+    # Download and load training data
     testloader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
 
     return trainloader, validloader, testloader, N_TRAIN, X_test, Y_I_test, Y_phi_test
@@ -676,8 +654,8 @@ def gpu_opti_settings(model, H, W, N_TRAIN, N_VALID, BATCH_SIZE, LR, verbose=Fal
     model = model.to(device)
     
     #Optimizer details
-    iterations_per_epoch = np.floor((N_TRAIN-N_VALID)/BATCH_SIZE)+1 #Final batch will be less than batch size
-    step_size = 6*iterations_per_epoch #Paper recommends 2-10 number of iterations, step_size is half cycle
+    iterations_per_epoch = np.floor((N_TRAIN-N_VALID)/BATCH_SIZE)+1
+    step_size = 6*iterations_per_epoch
     if verbose:
         print("LR step size is:", step_size, "which is every %d epochs" %(step_size/iterations_per_epoch))
 
@@ -690,6 +668,31 @@ def gpu_opti_settings(model, H, W, N_TRAIN, N_VALID, BATCH_SIZE, LR, verbose=Fal
 
 
 def stitch_predictions(data_dir, scan_num, predicted_data, pixel_div=1, H=128, W=128):
+    """
+    Take predicted patterns and stich them into an image
+
+    Parameters
+    ----------
+    data_dir : str
+        location of the scan data
+    scan_num : int
+        the scan number to load scan positions from
+    predicted_data : nd.array
+        the predicted datat to stitch together
+    pixel_div : float
+        value to divide the scan positions by
+    H : int
+        height of the diffraction image
+    W : int
+        width of the diffraction image
+    
+    Returns
+    -------
+    nd.array
+    
+        The final stitched image
+    """
+    pred_data = predicted_data.copy()
     main_path = f"{data_dir}{scan_num}/"
     scan_pos = np.load(f"{main_path}scan_pixel_positions.npy")
     scan_pos = np.asarray(scan_pos, dtype=object)
@@ -700,8 +703,6 @@ def stitch_predictions(data_dir, scan_num, predicted_data, pixel_div=1, H=128, W
     pos_row = (pos[1]-np.min(pos[1]))
     pos_col = (pos[0]-np.min(pos[0]))
 
-    print(pos_row.shape)
-
     # integer position
     pos_int_row = pos_row.astype(np.int32)
     pos_int_col = pos_col.astype(np.int32)
@@ -709,25 +710,17 @@ def stitch_predictions(data_dir, scan_num, predicted_data, pixel_div=1, H=128, W
     pos_subpixel_row = pos_row - pos_int_row
     pos_subpixel_col = pos_col - pos_int_col
     
-    preds_amp = predicted_data.copy()
     hH = int(H/2)
     hW = int(W/2)
 
-    composite_amp = np.zeros((np.max(pos_int_row)+H,np.max(pos_int_col)+W),float)
-
-    print(composite_amp.shape)
+    composite_data = np.zeros((np.max(pos_int_row)+H,np.max(pos_int_col)+W),float)
     ctr = np.zeros_like(composite_amp)
-
-    data_reshaped = preds_amp.reshape(preds_amp.shape[0], H, W)
-    print(data_reshaped.shape)
+    data_reshaped = resize(pred_data, (pred_data.shape[0], H, W))
 
     for i in range(pos_row.shape[0]):
-    #     data_tmp = np.real(sub_shift.subpixel_shift(data_reshaped[i]*pb_weight,pos_subpixel_row[i],pos_subpixel_col[i]))
-    #     weight_tmp = np.real(sub_shift.subpixel_shift(pb_weight,pos_subpixel_row[i],pos_subpixel_col[i]))
-        composite_amp[pos_int_row[i]:pos_int_row[i]+H,pos_int_col[i]:pos_int_col[i]+H] += data_reshaped[i] * 1 #* pb_weights
-        ctr[pos_int_row[i]:pos_int_row[i]+W,pos_int_col[i]:pos_int_col[i]+W] += pb_weights
+        composite_data[pos_int_row[i]:pos_int_row[i]+H,pos_int_col[i]:pos_int_col[i]+H] += data_reshaped[i] * 1 
+        #ctr[pos_int_row[i]:pos_int_row[i]+W,pos_int_col[i]:pos_int_col[i]+W] += pb_weights
 
-    composite_amp = composite_amp[hH:-hH,hW:-hW]
-    ctr = ctr[hH:-hH,hW:-hW]
-    
-    return composite_amp
+    composite_data = composite_data[hH:-hH,hW:-hW]
+    #ctr = ctr[hH:-hH,hW:-hW]
+    return composite_data

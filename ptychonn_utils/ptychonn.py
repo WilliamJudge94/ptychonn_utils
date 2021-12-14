@@ -30,7 +30,7 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
           lr: float = typer.Option(1e-3, help="learning rate"),
           height: int = typer.Option(128, help="height of image"),
           width: int = typer.Option(128, help="width of image"),
-          mean_phsqr: float = typer.Option(0.0, help="sqrt of phase to allow during training"),
+          mean_phsqr: float = typer.Option(0.02, help="sqrt of phase to allow during training"),
           verbose: bool = typer.Option(False, help="print useful data")):
     
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_select
