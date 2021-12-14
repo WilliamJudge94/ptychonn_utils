@@ -100,7 +100,8 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
 
 @app.command()
 def predict(data_path: str = typer.Argument(..., help="path to the folder containing folders of scans"),
-          start_scan: int = typer.Argument(..., help="start scan number"),
+          pred_scan: int = typer.Argument(..., help="pred scan number"),
+          network_scan: int = typer.Argument(..., help="scan to load trained network from"),
           ngpus: int = typer.Option(1, help="number of gpu's to use"),
           gpu_select: str = typer.Option('1', help="select which gpu to use"),
           batch_size: int = typer.Option(64, help="batch size during training"),
@@ -110,14 +111,14 @@ def predict(data_path: str = typer.Argument(..., help="path to the folder contai
     
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_select
     im_shape = (height, width)
-    data_diffr_red, amp, ph = load_dataV2(data_path, start_scan, start_scan, im_shape=im_shape, torp='predict')
+    data_diffr_red, amp, ph = load_dataV2(data_path, pred_scan, pred_scan, im_shape=im_shape, torp='predict')
     X_pred = data_diffr_red.reshape(-1, height, width)[:,np.newaxis,:,:]
     X_pred_tensor = torch.Tensor(X_pred) 
     pred_data = TensorDataset(X_pred_tensor)
     
     predloader = DataLoader(pred_data, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    
-    MODEL_SAVE_PATH = setup_model_path()
+        
+    MODEL_SAVE_PATH = setup_model_path(data_path, network_scan)
     model = torch.load(MODEL_SAVE_PATH + 'best_model.pth')
     model, criterion, optimizer, scheduler, device, iterations_per_epoch = gpu_opti_settings(model,
                                                                                              height, width,
@@ -139,11 +140,14 @@ def predict(data_path: str = typer.Argument(..., help="path to the folder contai
     amps = np.array(amps).squeeze()
     phs = np.array(phs).squeeze()
     
-    amp = stitch_predictions(data_path, start_scan, amps, pixel_div=2, H=128, W=128)
-    ph = stitch_predictions(data_path, start_scan,phs, pixel_div=2, H=128, W=128)
+    org_shape = np.load(f"{data_path}{network_scan}/scan_shape_metadata.npy")
+    pidxel_div = org_shape[-1]/width
     
-    np.save(f'{data_path}{start_scan}/prediction_amp_2.npy', amp)
-    np.save(f'{data_path}{start_scan}/prediction_phi_2.npy', ph)
+    amp = stitch_predictions(data_path, pred_scan, amps, pixel_div=pidxel_div, H=height, W=width)
+    ph = stitch_predictions(data_path, pred_scan, phs, pixel_div=pidxel_div, H=height, W=width)
+    
+    np.save(f'{data_path}{pred_scan}/prediction_amp.npy', amp)
+    np.save(f'{data_path}{pred_scan}/prediction_phi.npy', ph)
     
         
 if __name__ == "__main__":

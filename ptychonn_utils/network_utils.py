@@ -157,7 +157,6 @@ def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(
     for scan_num in tqdm(range(start_scan, end_scan+1), position=0, leave=False, desc='Loading Scans'):
         if torp == 'train':
             real_space = np.load(f"{main_path}/{scan_num}/recon_data.npy")
-            print(np.shape(real_space))
             r_space.append(real_space)
             phase = np.angle(real_space)
             ampli = np.abs(real_space)
@@ -165,7 +164,6 @@ def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(
             ph_data.append(phase)
             
         data_diffr = np.load(f"{main_path}/{scan_num}/diff_data.npy")
-        print(np.shape(data_diffr))
         dif_data.append(data_diffr)
         
     if len(dif_data) != 1:
@@ -190,8 +188,6 @@ def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(
             total_data_diff = total_data_diff[idx].astype('float32')
             total_data_amp = total_data_amp[idx].astype('float32')
             total_data_phase = total_data_phase[idx].astype('float32')
-            print(np.shape(total_data_phase))
-            _ = input()
             total_data_amp = resize(total_data_amp, (total_data_amp.shape[0], 1, im_shape[0], im_shape[1]))
             pbar.update(1)
             total_data_phase = resize(total_data_phase, (total_data_phase.shape[0], 1, im_shape[0], im_shape[1]))
@@ -257,6 +253,8 @@ def load_dataV3(main_path, start_scan, end_scan, mean_phsqr_val=0.0, im_shape=(2
         _ = _[0, :, :, :]
         total_data_diff = _[:,np.newaxis,:,:]
         
+    np.save(f"{main_path}/{scan_num}/scan_shape_metadata.npy", total_data_diff.shape)
+        
     if torp == 'train':
         tqdm_total = 3
     else:
@@ -272,6 +270,7 @@ def load_dataV3(main_path, start_scan, end_scan, mean_phsqr_val=0.0, im_shape=(2
             total_data_diff = total_data_diff[idx].astype('float32')
             total_data_amp = total_data_amp[idx].astype('float32')
             total_data_phase = total_data_phase[idx].astype('float32')
+            
             if total_data_amp.shape[0] == 0:
                 raise ValueError(f"Please reduce mean_phsqr_val value. It is set to high.")
             total_data_amp = resize(total_data_amp, (total_data_amp.shape[0], 1, im_shape[0], im_shape[1]))
@@ -281,7 +280,8 @@ def load_dataV3(main_path, start_scan, end_scan, mean_phsqr_val=0.0, im_shape=(2
         else:
             total_data_amp = []
             total_data_phase = []
-
+            
+        
         total_data_diff = resize(total_data_diff, (total_data_diff.shape[0], 1, im_shape[0], im_shape[1]))
         pbar.update(1)
     
@@ -693,6 +693,7 @@ def stitch_predictions(data_dir, scan_num, predicted_data, pixel_div=1, H=128, W
         The final stitched image
     """
     pred_data = predicted_data.copy()
+    
     main_path = f"{data_dir}{scan_num}/"
     scan_pos = np.load(f"{main_path}scan_pixel_positions.npy")
     scan_pos = np.asarray(scan_pos, dtype=object)
@@ -714,7 +715,7 @@ def stitch_predictions(data_dir, scan_num, predicted_data, pixel_div=1, H=128, W
     hW = int(W/2)
 
     composite_data = np.zeros((np.max(pos_int_row)+H,np.max(pos_int_col)+W),float)
-    ctr = np.zeros_like(composite_amp)
+    ctr = np.zeros_like(composite_data)
     data_reshaped = resize(pred_data, (pred_data.shape[0], H, W))
 
     for i in range(pos_row.shape[0]):
