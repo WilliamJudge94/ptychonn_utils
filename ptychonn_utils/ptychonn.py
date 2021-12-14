@@ -1,7 +1,8 @@
 import sys, os
-sys.path.append('/projects/hp-ptycho/wjudge/ptychonn/ptychonn/')
+#sys.path.append('/projects/hp-ptycho/wjudge/ptychonn/ptychonn/')
 from network_utils import *
 from tqdm import tqdm
+import torch
 import typer
 
 import warnings
@@ -20,13 +21,16 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
           val_lines: float = typer.Option(0.15, help="percent of training data to validate with"),
           
           epochs: int = typer.Option(60, help="number of epochs to train"),
-          ngpus: int = typer.Option(1, help="number of gpu's to use"),
           gpu_select: str = typer.Option('1', help="select which gpu to use"),
           batch_size: int = typer.Option(64, help="batch size during training"),
+          load_model_scan: int = typer.Option(-1, help="dir where to load model from - default load blank network"),
+          save_model_scan: int = typer.Option(-1, help="dir where to save model to - default save to first scan"),
+          
+          ngpus: int = typer.Option(1, help="number of gpu's to use"),
           lr: float = typer.Option(1e-3, help="learning rate"),
           height: int = typer.Option(128, help="height of image"),
           width: int = typer.Option(128, help="width of image"),
-          mean_phsqr: float = typer.Option(0.02, help="sqrt of phase to allow during training"),
+          mean_phsqr: float = typer.Option(0.0, help="sqrt of phase to allow during training"),
           verbose: bool = typer.Option(False, help="print useful data")):
     
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_select
@@ -35,9 +39,12 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
 
     EPOCHS, NGPUS, BATCH_SIZE, LR = setup_training_params(epochs, ngpus, batch_size, lr, verbose)
 
-    MODEL_SAVE_PATH = setup_model_path()
+    if save_model_scan == -1:
+        save_model_scan = end_scan
+        
+    MODEL_SAVE_PATH = setup_model_path(data_path, save_model_scan)
 
-    data_diffr_red, amp, ph = load_dataV2(data_path, start_scan, end_scan, im_shape=im_shape, mean_phsqr_val=mean_phsqr)
+    data_diffr_red, amp, ph = load_dataV3(data_path, start_scan, end_scan, im_shape=im_shape, mean_phsqr_val=mean_phsqr)
     
     total_lines = len(data_diffr_red)
     
@@ -55,6 +62,10 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
                                                                                               H, W, verbose)
 
     model = recon_model()
+    
+    if load_model_scan != -1:
+        model = torch.load(f'{data_path}{load_model_scan}/trainded_model/best_model.pth')
+    
     model, criterion, optimizer, scheduler, device, iterations_per_epoch = gpu_opti_settings(model,
                                                                                              H, W,
                                                                                              N_TRAIN,
@@ -63,13 +74,13 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
                                                                                              LR)
     
     metrics = {'losses':[],'val_losses':[], 'lrs':[], 'best_val_loss' : np.inf}
-    for epoch in tqdm(range(EPOCHS), position=0):
+    for epoch in tqdm(range(EPOCHS), position=0, desc='Epoch'):
 
         #Set model to train mode
         model.train() 
 
         #Training loop
-        train_nn(trainloader,metrics, device, model, criterion, optimizer, scheduler)
+        train_nn(trainloader, metrics, device, model, criterion, optimizer, scheduler)
 
         #Switch model to eval mode
         model.eval()
@@ -82,7 +93,10 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
             print('Epoch: %d | Amp | Train Loss: %.4f | Val Loss: %.4f' %(epoch, metrics['losses'][-1][1], metrics['val_losses'][-1][1]))
             print('Epoch: %d | Ph  | Train Loss: %.3f | Val Loss: %.3f' %(epoch, metrics['losses'][-1][2], metrics['val_losses'][-1][2]))
             print('Epoch: %d | Ending LR: %.6f ' %(epoch, metrics['lrs'][-1][0]))
-        
+    
+    np.savez(f'{data_path}{save_model_scan}/trainded_model/training_metrics.npz',
+             losses=metrics['losses'], val_losses=metrics['val_losses'],
+             lrs=metrics['lrs'], best_val_loss=metrics['best_val_loss'])
 
 @app.command()
 def predict(data_path: str = typer.Argument(..., help="path to the folder containing folders of scans"),
@@ -125,8 +139,11 @@ def predict(data_path: str = typer.Argument(..., help="path to the folder contai
     amps = np.array(amps).squeeze()
     phs = np.array(phs).squeeze()
     
-    np.save(f'{data_path}{start_scan}/pred_ampli.npy', amps)
-    np.save(f'{data_path}{start_scan}/pred_phase.npy', phs)
+    amp = stitch_predictions(data_path, start_scan, amps, pixel_div=2, H=128, W=128)
+    ph = stitch_predictions(data_path, start_scan,phs, pixel_div=2, H=128, W=128)
+    
+    np.save(f'{data_path}{start_scan}/prediction_amp_2.npy', amp)
+    np.save(f'{data_path}{start_scan}/prediction_phi_2.npy', ph)
     
         
 if __name__ == "__main__":

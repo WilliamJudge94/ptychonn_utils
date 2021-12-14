@@ -103,7 +103,7 @@ def setup_training_params(EPOCHS,
     return EPOCHS, NGPUS, BATCH_SIZE, LR
 
 
-def setup_model_path():
+def setup_model_path(data_path, save_model_scan):
     """
     Setup the trained model path.
     
@@ -116,9 +116,8 @@ def setup_model_path():
     str
         the path to the trained model save location
     """
-    path = os.getcwd()
 
-    MODEL_SAVE_PATH = path +'/trained_model/'
+    MODEL_SAVE_PATH = f'{data_path}{save_model_scan}/trainded_model/'
     if (not os.path.isdir(MODEL_SAVE_PATH)):
         os.mkdir(MODEL_SAVE_PATH)
         
@@ -164,9 +163,10 @@ def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(
     amp_data = []
     ph_data = []
 
-    for scan_num in tqdm(range(start_scan, end_scan+1), position=0, leave=False):
+    for scan_num in tqdm(range(start_scan, end_scan+1), position=0, leave=False, desc='Loading Scans'):
         if torp == 'train':
             real_space = np.load(f"{main_path}/{scan_num}/recon_data.npy")
+            print(np.shape(real_space))
             r_space.append(real_space)
             phase = np.angle(real_space)
             ampli = np.abs(real_space)
@@ -174,6 +174,7 @@ def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(
             ph_data.append(phase)
             
         data_diffr = np.load(f"{main_path}/{scan_num}/diff_data.npy")
+        print(np.shape(data_diffr))
         dif_data.append(data_diffr)
         
     if len(dif_data) != 1:
@@ -182,22 +183,116 @@ def load_dataV2(main_path, start_scan, end_scan, mean_phsqr_val=0.02, im_shape=(
         _ = np.asarray(dif_data, dtype='float32')
         _ = _[0, :, :, :]
         total_data_diff = _[:,np.newaxis,:,:]
-    
+        
     if torp == 'train':
-        total_data_amp = np.concatenate(amp_data)
-        total_data_phase = np.concatenate(ph_data)
-        av_vals = np.mean(total_data_phase**2, axis=(1, 2))
-        idx = np.argwhere(av_vals >= mean_phsqr_val)
-        total_data_diff = total_data_diff[idx].astype('float32')
-        total_data_amp = total_data_amp[idx].astype('float32')
-        total_data_phase = total_data_phase[idx].astype('float32')
-        total_data_amp = resize(total_data_amp, (total_data_amp.shape[0], 1, im_shape[0], im_shape[1]))
-        total_data_phase = resize(total_data_phase, (total_data_phase.shape[0], 1, im_shape[0], im_shape[1]))
+        tqdm_total = 3
     else:
-        total_data_amp = []
-        total_data_phase = []
+        tqdm_total = 1
+        
+    with tqdm(total=tqdm_total, leave=False, desc='Resizeing Data') as pbar:
     
-    total_data_diff = resize(total_data_diff, (total_data_diff.shape[0], 1, im_shape[0], im_shape[1]))
+        if torp == 'train':
+            total_data_amp = np.concatenate(amp_data)
+            total_data_phase = np.concatenate(ph_data)
+            av_vals = np.mean(total_data_phase**2, axis=(1, 2))
+            idx = np.argwhere(av_vals >= mean_phsqr_val)
+            total_data_diff = total_data_diff[idx].astype('float32')
+            total_data_amp = total_data_amp[idx].astype('float32')
+            total_data_phase = total_data_phase[idx].astype('float32')
+            print(np.shape(total_data_phase))
+            _ = input()
+            total_data_amp = resize(total_data_amp, (total_data_amp.shape[0], 1, im_shape[0], im_shape[1]))
+            pbar.update(1)
+            total_data_phase = resize(total_data_phase, (total_data_phase.shape[0], 1, im_shape[0], im_shape[1]))
+            pbar.update(1)
+        else:
+            total_data_amp = []
+            total_data_phase = []
+
+        total_data_diff = resize(total_data_diff, (total_data_diff.shape[0], 1, im_shape[0], im_shape[1]))
+        pbar.update(1)
+    
+    return total_data_diff, total_data_amp, total_data_phase
+
+
+def load_dataV3(main_path, start_scan, end_scan, mean_phsqr_val=0.0, im_shape=(256, 256), torp='train'):
+    """
+    Load in the saved training data from TIKE
+    
+    Parameters
+    ----------
+    main_path : str
+        path to a folder housing scan number folders housing the data to load
+    start_scan : int
+        the first scan number to load data from
+    end_scan : int
+        the final scan number to load data from
+    mean_phsqr_val : float
+        the square of the phase image must be above this value to be placed into training
+    im_shape : list
+        reshape all training images to this dimension
+        
+    Returns
+    -------
+    list of nd.array
+        the diffraction patterns,
+        the amplidudes of the real-space images,
+        the phase of the real-space image.
+    """
+    
+    r_space = []
+    dif_data = []
+    amp_data = []
+    ph_data = []
+
+    for scan_num in tqdm(range(start_scan, end_scan+1), position=0, leave=False, desc='Loading Scans'):
+        if torp == 'train':
+            real_space = np.load(f"{main_path}/{scan_num}/patched_psi.npy")
+            r_space.append(real_space)
+            phase = np.angle(real_space)
+            ampli = np.abs(real_space)
+            amp_data.append(ampli)
+            ph_data.append(phase)
+            
+        data_diffr = np.load(f"{main_path}/{scan_num}/cropped_exp_diffr_data.npy")
+        dif_data.append(data_diffr)
+    
+        
+    if len(dif_data) != 1:
+        total_data_diff = np.concatenate(dif_data)
+    else:
+        _ = np.asarray(dif_data, dtype='float32')
+        _ = _[0, :, :, :]
+        total_data_diff = _[:,np.newaxis,:,:]
+        
+    if torp == 'train':
+        tqdm_total = 3
+    else:
+        tqdm_total = 1
+        
+    with tqdm(total=tqdm_total, leave=False, desc='Resizeing Data') as pbar:
+    
+        if torp == 'train':
+            total_data_amp = np.concatenate(amp_data)
+            total_data_phase = np.concatenate(ph_data)
+            av_vals = np.mean(total_data_phase**2, axis=(1, 2))
+            idx = np.argwhere(av_vals >= mean_phsqr_val)
+            total_data_diff = total_data_diff[idx].astype('float32')
+            total_data_amp = total_data_amp[idx].astype('float32')
+            total_data_phase = total_data_phase[idx].astype('float32')
+            if total_data_amp.shape[0] == 0:
+                raise ValueError(f"Please reduce mean_phsqr_val value. It is set to high.")
+            total_data_amp = resize(total_data_amp, (total_data_amp.shape[0], 1, im_shape[0], im_shape[1]))
+            pbar.update(1)
+            total_data_phase = resize(total_data_phase, (total_data_phase.shape[0], 1, im_shape[0], im_shape[1]))
+            pbar.update(1)
+        else:
+            total_data_amp = []
+            total_data_phase = []
+
+        total_data_diff = resize(total_data_diff, (total_data_diff.shape[0], 1, im_shape[0], im_shape[1]))
+        pbar.update(1)
+    
     return total_data_diff, total_data_amp, total_data_phase
 
 
@@ -285,7 +380,7 @@ def train_nn(trainloader, metrics, device, model, criterion, optimizer, schedule
     loss_amp = 0.0
     loss_ph = 0.0
     
-    for i, (ft_images,amps,phs) in tqdm(enumerate(trainloader), position=1, leave=False, total=len(trainloader)):
+    for i, (ft_images,amps,phs) in tqdm(enumerate(trainloader), position=1, leave=False, total=len(trainloader), desc='Batches'):
         ft_images = ft_images.to(device) #Move everything to device
         amps = amps.to(device)
         phs = phs.to(device)
@@ -592,3 +687,47 @@ def gpu_opti_settings(model, H, W, N_TRAIN, N_VALID, BATCH_SIZE, LR, verbose=Fal
                                                   cycle_momentum=False, mode='triangular2')
     
     return model, criterion, optimizer, scheduler, device, iterations_per_epoch
+
+
+def stitch_predictions(data_dir, scan_num, predicted_data, pixel_div=1, H=128, W=128):
+    main_path = f"{data_dir}{scan_num}/"
+    scan_pos = np.load(f"{main_path}scan_pixel_positions.npy")
+    scan_pos = np.asarray(scan_pos, dtype=object)
+    pos = [scan_pos[:, 1], scan_pos[:, 0]]
+    pos = np.asarray(pos, dtype=object)
+    pos = pos / pixel_div
+    
+    pos_row = (pos[1]-np.min(pos[1]))
+    pos_col = (pos[0]-np.min(pos[0]))
+
+    print(pos_row.shape)
+
+    # integer position
+    pos_int_row = pos_row.astype(np.int32)
+    pos_int_col = pos_col.astype(np.int32)
+
+    pos_subpixel_row = pos_row - pos_int_row
+    pos_subpixel_col = pos_col - pos_int_col
+    
+    preds_amp = predicted_data.copy()
+    hH = int(H/2)
+    hW = int(W/2)
+
+    composite_amp = np.zeros((np.max(pos_int_row)+H,np.max(pos_int_col)+W),float)
+
+    print(composite_amp.shape)
+    ctr = np.zeros_like(composite_amp)
+
+    data_reshaped = preds_amp.reshape(preds_amp.shape[0], H, W)
+    print(data_reshaped.shape)
+
+    for i in range(pos_row.shape[0]):
+    #     data_tmp = np.real(sub_shift.subpixel_shift(data_reshaped[i]*pb_weight,pos_subpixel_row[i],pos_subpixel_col[i]))
+    #     weight_tmp = np.real(sub_shift.subpixel_shift(pb_weight,pos_subpixel_row[i],pos_subpixel_col[i]))
+        composite_amp[pos_int_row[i]:pos_int_row[i]+H,pos_int_col[i]:pos_int_col[i]+H] += data_reshaped[i] * 1 #* pb_weights
+        ctr[pos_int_row[i]:pos_int_row[i]+W,pos_int_col[i]:pos_int_col[i]+W] += pb_weights
+
+    composite_amp = composite_amp[hH:-hH,hW:-hW]
+    ctr = ctr[hH:-hH,hW:-hW]
+    
+    return composite_amp
