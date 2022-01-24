@@ -11,7 +11,7 @@ import tike.ptycho
 import tike.view
 from tike.ptycho.learn import extract_patches
 
-import sys
+import sys, os
 import tifffile as tif
 from scipy.io import loadmat
 from skimage.restoration import unwrap_phase
@@ -115,6 +115,11 @@ def tike_recon(start_scan: int = typer.Argument(..., help="beginning scan"),
                end_scan: int = typer.Argument(..., help="ending scan")):
     base_path = '/projects/hp-ptycho/wjudge/'
     for data_num in range(start_scan, end_scan+1):
+        if not os.path.isdir(f'/projects/hp-ptycho/wjudge/ptychonn/scan_dataml/{data_num}/'):
+            print(f'Making Dir - /projects/hp-ptycho/wjudge/ptychonn/scan_dataml/{data_num}/')
+            os.mkdir(f'/projects/hp-ptycho/wjudge/ptychonn/scan_dataml/{data_num}/')
+        else:
+            print('Dir Exists')
         full_function(base_path, data_num)
          
         

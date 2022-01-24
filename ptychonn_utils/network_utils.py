@@ -357,7 +357,7 @@ def train_nn(trainloader, metrics, device, model, criterion, optimizer, schedule
     loss_amp = 0.0
     loss_ph = 0.0
     
-    for i, (ft_images,amps,phs) in tqdm(enumerate(trainloader), position=1, leave=False, total=len(trainloader), desc='Batches'):
+    for i, (ft_images,amps,phs) in tqdm(enumerate(trainloader), position=0, leave=False, total=len(trainloader), desc='Batches'):
         ft_images = ft_images.to(device)
         amps = amps.to(device)
         phs = phs.to(device)

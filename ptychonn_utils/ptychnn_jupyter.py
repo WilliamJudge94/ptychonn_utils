@@ -2,11 +2,71 @@ import sys, os
 from network_utils import *
 from tqdm import tqdm
 import torch
+import datetime
+
 
 def train_ptychonn(data_path, start_scan, end_scan,
                    train_lines=0.85, val_lines=0.15, epochs=60, gpu_select='1', batch_size=64,
                    load_model_scan=-1, save_model_scan=-1, ngpus=1, lr=1e-3, height=128, width=128,
                    mean_phsqr=0.02, verbose=False):
+    
+    """
+    Train PtychoNN network on the selected data
+    
+    Parameters
+    ----------
+    data_path : str
+        the path to the folder which houses the saved tike data
+    
+    start_scan : int
+        the staring scan to import tike data from
+    
+    end_scan : int
+        the ending scan to import tike data from
+    
+    train_lines : float
+        the percentage of data to use during training
+        
+    val_lines : float
+        the percentage of data to use during validation
+    
+    epochs : int
+        the number of epochs to train
+        
+    gpu_select : str
+        the string ID of the gpu the user would like to train with
+    
+    batch_size : int
+        the batch size during training
+        
+    load_model_scan : int
+        the scan number to pull saved model from. Value of -1 loads blank network
+        
+    save_model_scan : int
+        the scan number to save the model to. Value of -1 saves to end_scan.
+    
+    ngpus : int
+        the amount of gpu's to train with (IN BETA)
+        
+    height : int
+        the x dim to resize to for training
+    
+    width : int
+        the y dim to resize to for training
+    
+    mean_phsqr : float
+        all training images with a mean squared phase below this value will not be used during training.
+        this avoids blank FOV's
+    
+    verbose : bool
+        if True it will output useful metrics.
+    
+    Returns
+    -------
+    None
+        saves trained model and training metrics to User defined scan number
+    """
+    t1 = datetime.datetime.now()
     
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_select
 
@@ -20,6 +80,7 @@ def train_ptychonn(data_path, start_scan, end_scan,
     MODEL_SAVE_PATH = setup_model_path(data_path, save_model_scan)
 
     data_diffr_red, amp, ph = load_dataV3(data_path, start_scan, end_scan, im_shape=im_shape, mean_phsqr_val=mean_phsqr)
+
 
     total_lines = len(data_diffr_red)
 
@@ -47,9 +108,10 @@ def train_ptychonn(data_path, start_scan, end_scan,
                                                                                              N_VALID,
                                                                                              BATCH_SIZE,
                                                                                              LR)
-
+    
+    t2 = datetime.datetime.now()
     metrics = {'losses':[],'val_losses':[], 'lrs':[], 'best_val_loss' : np.inf}
-    for epoch in tqdm(range(EPOCHS), position=0, desc='Epoch'):
+    for epoch in tqdm(range(EPOCHS), position=0, leave=True, desc='Epoch'):
 
         #Set model to train mode
         model.train() 
@@ -69,12 +131,52 @@ def train_ptychonn(data_path, start_scan, end_scan,
             print('Epoch: %d | Ph  | Train Loss: %.3f | Val Loss: %.3f' %(epoch, metrics['losses'][-1][2], metrics['val_losses'][-1][2]))
             print('Epoch: %d | Ending LR: %.6f ' %(epoch, metrics['lrs'][-1][0]))
 
+    t3 = datetime.datetime.now()
     np.savez(f'{data_path}{save_model_scan}/trainded_model/training_metrics.npz',
              losses=metrics['losses'], val_losses=metrics['val_losses'],
-             lrs=metrics['lrs'], best_val_loss=metrics['best_val_loss'])
+             lrs=metrics['lrs'], best_val_loss=metrics['best_val_loss'],
+             total_load_time=t2-t1, total_train_time=t3-t2)
     
     
 def predict_ptychonn(data_path, pred_scan, network_scan, ngpus=1, gpu_select='1', batch_size=64, height=128, width=128, verbose=False):
+    """
+    Predict a ptycho recon using a trained ptychoNN network.
+    
+    Parameters
+    ----------
+    data_path : str
+        the path to the folder which houses the saved tike data
+        
+    pred_scan : int
+        the scan number to predict
+    
+    network_scan : int
+        the scan number to load a trained model from
+        
+    ngpus : int
+        the number of gpus to train with (IN BETA)
+        
+    gpu_select : str
+        the gpu ID's to train with
+    
+    batch_size : int
+        the batch size to use during prediction
+    
+    height : int
+        the x dim to resize to for training
+    
+    width : int
+        the y dim to resize to for training
+        
+    verbose : bool
+        if True it will output useful metrics. 
+    
+    Returns
+    -------
+    None
+        saves the predicted amplitude and phase to the data_path/pred_scan/prediction_amp.npy or
+        data_path/pred_scan/prediction_phi.npy
+    """
     
     os.environ['CUDA_VISIBLE_DEVICES'] = gpu_select
     im_shape = (height, width)

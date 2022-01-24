@@ -24,7 +24,7 @@ def train(data_path: str = typer.Argument(..., help="path to the folder containi
           gpu_select: str = typer.Option('1', help="select which gpu to use"),
           batch_size: int = typer.Option(64, help="batch size during training"),
           load_model_scan: int = typer.Option(-1, help="dir where to load model from - default load blank network"),
-          save_model_scan: int = typer.Option(-1, help="dir where to save model to - default save to first scan"),
+          save_model_scan: int = typer.Option(-1, help="dir where to save model to - default save to end_scan"),
           
           ngpus: int = typer.Option(1, help="number of gpu's to use"),
           lr: float = typer.Option(1e-3, help="learning rate"),
